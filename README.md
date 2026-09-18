@@ -1,6 +1,6 @@
 # cdp-drive
 
-Read and drive a **running** Chromium browser from the command line, over the Chrome DevTools Protocol. One file, no dependencies, works with Node 22+ or Bun.
+Read and drive a **running** Chromium browser from the command line, over the Chrome DevTools Protocol. One file, no dependencies, works with Node 22.4+ or Bun.
 
 ```bash
 cdp-drive snapshot                        # what's on the page right now
@@ -67,6 +67,7 @@ Anything that can reach that port can control the browser, so keep it on `127.0.
 | `fill <selector> <value>` | Set a value through the native setter, then fire `input` and `change` |
 | `press <selector> <key>` | Focus the match and send a key, e.g. `Enter` |
 | `wait <selector>` | Poll until the selector matches, or fail (`--timeout`, default 10000ms) |
+| `press <selector> <key>` keys | `Enter`, `Tab`, `Escape`, `Backspace`, `Delete`, arrows, `Home`, `End`, `PageUp`, `PageDown`, `Space`, or any single character |
 | `goto <url>` / `reload` | Navigate |
 | `eval "<js>"` | Evaluate an expression in the page and print the JSON result |
 | `logs [seconds]` | Collect console messages, exceptions and browser logs, repeats folded with counts |
@@ -116,6 +117,8 @@ The agent reads structure instead of guessing from screenshots, and drives the p
 - **Loopback resolution.** Chromium binds the port to whichever loopback family it resolved at launch, so `localhost` may fail while `127.0.0.1` works. cdp-drive tries IPv4 and IPv6.
 - **`fill` uses the native value setter**, so React and Vue notice the change. A plain `el.value = …` is ignored by React's controlled inputs.
 - **Some buttons need a real click.** `click` calls `el.click()`, which some libraries ignore. Fall back to `eval` with a dispatched `PointerEvent` if that happens.
+- **`snapshot` reports what is visibly rendered**, measured by box size and computed style, so fixed-position bars and floating buttons are included.
+- **Screenshots raise the tab first**, because Chromium renders no frames for a background tab.
 - **A frozen renderer** aborts the command after 25 seconds with exit code 2 (change with `$CDP_TIMEOUT_MS`).
 
 ## Tests
@@ -124,7 +127,7 @@ The agent reads structure instead of guessing from screenshots, and drives the p
 npm test   # or: bash test/smoke.sh
 ```
 
-Launches a headless browser on a spare port, drives a fixture page through every command, and checks the results, including iframe targeting, timeouts and error cases.
+Launches a headless browser on a spare port and runs **36 checks** covering every command, iframe targeting (including frames under different parents), React-style fills, select elements, key codes, navigation, the documented exit codes, option validation and the launcher's refusal to start on a busy port.
 
 ## License
 

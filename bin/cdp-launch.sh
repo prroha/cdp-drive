@@ -42,21 +42,48 @@ find_browser() {
   exit 3
 }
 
-BROWSER="$(find_browser)"
+port_answers() {
+  curl -s --max-time 1 "http://127.0.0.1:$PORT/json/version" >/dev/null 2>&1
+}
 
 # Chromium runs ONE process per --user-data-dir. If another instance already
 # holds this profile, a new launch just opens a window in it and silently drops
 # these flags, including the debugging port. Release the profile first.
+#
+# Compare the flag as a whole token: a substring match would kill a browser
+# running on /tmp/p2 when this profile is /tmp/p.
 free_profile() {
-  pkill -f "user-data-dir=$PROFILE" 2>/dev/null || true
-  rm -f "$PROFILE/SingletonLock" "$PROFILE/SingletonCookie" "$PROFILE/SingletonSocket" 2>/dev/null || true
+  local pid cmdline token
+  while read -r pid cmdline; do
+    for token in $cmdline; do
+      if [[ "$token" == "--user-data-dir=$PROFILE" ]]; then
+        kill "$pid" 2>/dev/null || true
+        break
+      fi
+    done
+  done < <(pgrep -af -- "--user-data-dir=" 2>/dev/null || true)
 }
+
+BROWSER="$(find_browser)"
 
 free_profile
 if [[ -n "${CDP_FRESH:-}" ]]; then
   rm -rf "$PROFILE"
 fi
 mkdir -p "$PROFILE"
+
+# Give a killed holder a moment to release the port, then refuse to launch if
+# something else still owns it: the new browser would fail to bind, drop its
+# flags, and cdp-drive would silently attach to the wrong browser.
+for _ in 1 2 3 4 5; do
+  port_answers || break
+  sleep 0.3
+done
+if port_answers; then
+  echo "cdp-launch: port $PORT is already serving a DevTools endpoint." >&2
+  echo "Attach to it (cdp-drive --port $PORT tabs), quit that browser, or pick another port." >&2
+  exit 1
+fi
 
 flags=(
   --remote-debugging-port="$PORT"
@@ -72,9 +99,8 @@ echo "cdp-launch: $BROWSER"
 echo "cdp-launch: debugging on 127.0.0.1:$PORT, profile $PROFILE"
 "$BROWSER" "${flags[@]}" "$URL" >/dev/null 2>&1 &
 
-# Wait for the port to answer so the next command can attach straight away.
 for _ in $(seq 1 50); do
-  if curl -s "http://127.0.0.1:$PORT/json/version" >/dev/null 2>&1; then
+  if port_answers; then
     echo "cdp-launch: ready — try: cdp-drive --port $PORT tabs"
     exit 0
   fi
@@ -82,5 +108,4 @@ for _ in $(seq 1 50); do
 done
 
 echo "cdp-launch: browser started but the debugging port never answered." >&2
-echo "A browser already running with this profile can swallow the flags." >&2
 exit 1

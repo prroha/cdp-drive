@@ -15,7 +15,7 @@
     "test": "bash test/smoke.sh"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.4"
   },
   "keywords": [
     "cdp",

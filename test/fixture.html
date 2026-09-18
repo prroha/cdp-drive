@@ -2,18 +2,36 @@
 <html>
   <head>
     <title>cdp-drive fixture</title>
+    <style>
+      #sticky {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+      }
+    </style>
   </head>
   <body>
     <h1 id="heading">Hello from the fixture</h1>
     <input id="name" placeholder="Your name" />
     <button id="greet" data-testid="greet">Greet</button>
     <p id="output"></p>
-    <iframe id="inner" srcdoc="<h2 id='inner-heading'>Inside the iframe</h2>"></iframe>
+    <p id="keyinfo"></p>
+    <select id="choice">
+      <option value="one">One</option>
+      <option value="two">Two</option>
+    </select>
+    <button id="sticky">Fixed position button</button>
+    <div><iframe id="inner" srcdoc="<h2 id='inner-heading'>Inside the iframe</h2>"></iframe></div>
+    <div><iframe srcdoc="<h2 id='second-heading'>Second frame</h2>"></iframe></div>
     <script>
       document.querySelector("#greet").addEventListener("click", () => {
         const name = document.querySelector("#name").value;
         document.querySelector("#output").textContent = `Hello, ${name}!`;
         console.log("greeted", name);
+      });
+      document.querySelector("#name").addEventListener("keydown", (event) => {
+        document.querySelector("#keyinfo").textContent =
+          `${event.key}|${event.code}|${event.keyCode}`;
       });
       setTimeout(() => {
         const later = document.createElement("div");

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // cdp-drive — read and drive a running Chromium browser over the Chrome
-// DevTools Protocol. No dependencies. Runs on Node 22+ and Bun.
+// DevTools Protocol. No dependencies. Runs on Node 22.4+ and Bun.
 //
 // The browser is one you launched yourself, with its real profile and its real
 // logins, so a command lands in the page you are already looking at.
@@ -16,18 +16,39 @@
 import { writeFileSync } from "node:fs";
 
 const DEFAULT_PORT = process.env.CDP_PORT ?? "9222";
-const HANG_MS = Number(process.env.CDP_TIMEOUT_MS ?? 25000);
+const BASE_HANG_MS = Number(process.env.CDP_TIMEOUT_MS ?? 25000);
+const HANG_MARGIN_MS = 5000;
 const DEFAULT_WAIT_MS = 10000;
+const DEFAULT_LOG_SECONDS = 5;
+const POLL_INTERVAL_MS = 150;
 const SNAPSHOT_LIMIT = 150;
 const INTERACTIVE_SELECTOR =
   "a,button,input,select,textarea,[role=button],[role=link],[role=tab],[data-testid]";
+
+// Named keys carry a virtual key code and a `code` value; listeners read both.
+const NAMED_KEYS = {
+  Enter: { keyCode: 13, code: "Enter", text: "\r" },
+  Tab: { keyCode: 9, code: "Tab" },
+  Escape: { keyCode: 27, code: "Escape" },
+  Backspace: { keyCode: 8, code: "Backspace" },
+  Delete: { keyCode: 46, code: "Delete" },
+  ArrowUp: { keyCode: 38, code: "ArrowUp" },
+  ArrowDown: { keyCode: 40, code: "ArrowDown" },
+  ArrowLeft: { keyCode: 37, code: "ArrowLeft" },
+  ArrowRight: { keyCode: 39, code: "ArrowRight" },
+  Home: { keyCode: 36, code: "Home" },
+  End: { keyCode: 35, code: "End" },
+  PageUp: { keyCode: 33, code: "PageUp" },
+  PageDown: { keyCode: 34, code: "PageDown" },
+  Space: { keyCode: 32, code: "Space", text: " " },
+};
 
 const HELP = `cdp-drive — drive a running Chromium browser over the DevTools Protocol
 
 Usage: cdp-drive [options] <command> [args]
 
 Commands:
-  tabs                     list open pages (url, title, index)
+  tabs                     list open pages (index, title, url)
   snapshot                 url, title and the interactive elements on the page
   frames                   list iframes, with a selector for --frame
   text <selector>          innerText of the first match
@@ -35,7 +56,7 @@ Commands:
   attr <selector> <name>   one attribute of the first match
   click <selector>         click the first match
   fill <selector> <value>  set a value and fire input/change (React-friendly)
-  press <selector> <key>   focus the match and send a key (e.g. Enter)
+  press <selector> <key>   focus the match and send a key (e.g. Enter, ArrowDown)
   wait <selector>          wait until the selector matches (--timeout ms)
   goto <url>               navigate the target page
   reload                   reload the target page
@@ -56,6 +77,11 @@ Options:
 Exit codes: 0 ok · 1 error (no match, bad selector, eval threw) · 2 timeout
             3 no browser reachable on the debugging port`;
 
+function fail(message, code = 1) {
+  console.error(`cdp-drive: ${message}`);
+  process.exit(code);
+}
+
 const argv = process.argv.slice(2);
 const frames = [];
 const positional = [];
@@ -68,20 +94,36 @@ const opts = {
   json: false,
 };
 
+function nextValue(flag, index) {
+  const value = argv[index];
+  if (value == null || value.startsWith("--")) {
+    fail(`${flag} needs a value`);
+  }
+  return value;
+}
+
+function positiveNumber(flag, raw) {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    fail(`${flag} expects a number, got ${raw}`);
+  }
+  return value;
+}
+
 for (let i = 0; i < argv.length; i++) {
   const arg = argv[i];
   if (arg === "--frame") {
-    frames.push(argv[++i]);
+    frames.push(nextValue("--frame", ++i));
   } else if (arg === "--port") {
-    opts.port = argv[++i];
+    opts.port = String(positiveNumber("--port", nextValue("--port", ++i)));
   } else if (arg === "--host") {
-    opts.host = argv[++i];
+    opts.host = nextValue("--host", ++i);
   } else if (arg === "--page") {
-    opts.page = argv[++i];
+    opts.page = nextValue("--page", ++i);
   } else if (arg === "--tab") {
-    opts.tab = Number(argv[++i]);
+    opts.tab = positiveNumber("--tab", nextValue("--tab", ++i));
   } else if (arg === "--timeout") {
-    opts.timeout = Number(argv[++i]);
+    opts.timeout = positiveNumber("--timeout", nextValue("--timeout", ++i));
   } else if (arg === "--json") {
     opts.json = true;
   } else if (arg === "-h" || arg === "--help") {
@@ -100,10 +142,12 @@ if (cmd == null) {
   process.exit(0);
 }
 
-function fail(message, code = 1) {
-  console.error(`cdp-drive: ${message}`);
-  process.exit(code);
-}
+const logSeconds =
+  cmd === "logs" ? positiveNumber("logs <seconds>", args[0] ?? DEFAULT_LOG_SECONDS) : 0;
+
+// A command that is meant to take time must outlive the hang guard.
+const requestedMs = cmd === "wait" ? opts.timeout : logSeconds * 1000;
+const hangMs = Math.max(BASE_HANG_MS, requestedMs + HANG_MARGIN_MS);
 
 function output(value, humanLine) {
   if (opts.json) {
@@ -131,7 +175,16 @@ async function fetchTargets() {
   for (const base of endpoints()) {
     try {
       const response = await fetch(`${base}/json`);
-      return await response.json();
+      if (!response.ok) {
+        errors.push(`${base}: HTTP ${response.status}`);
+        continue;
+      }
+      const body = await response.json();
+      if (!Array.isArray(body)) {
+        errors.push(`${base}: not a DevTools endpoint`);
+        continue;
+      }
+      return body;
     } catch (error) {
       errors.push(`${base}: ${error.cause?.code ?? error.message}`);
     }
@@ -172,7 +225,7 @@ function pickPage(pages) {
         (page.title ?? "").toLowerCase().includes(needle),
     );
     if (!hit) {
-      fail(`no open tab matching ${opts.page}`);
+      fail(`no open tab matching ${opts.page}. Run 'cdp-drive tabs' to see what is open.`);
     }
     return hit;
   }
@@ -209,6 +262,9 @@ const GUARDED_ROOT = `(() => { const root = ${ROOT};
   if (!root) throw new Error('frame not reachable: ' + ${quote(frames.join(" > "))});
   return root; })()`;
 
+// A permanent failure must not be mistaken for "not ready yet" while polling.
+const PERMANENT_ERROR = /frame not reachable|not a valid selector|SyntaxError/i;
+
 async function evaluate(send, expression) {
   const result = await send("Runtime.evaluate", {
     expression,
@@ -217,7 +273,9 @@ async function evaluate(send, expression) {
   });
   if (result.exceptionDetails) {
     throw new Error(
-      result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? "eval failed",
+      result.exceptionDetails.exception?.description ??
+        result.exceptionDetails.text ??
+        "eval failed",
     );
   }
   return result.result.value;
@@ -272,9 +330,21 @@ async function collectLogs(socket, send, seconds) {
     .sort((a, b) => b.count - a.count);
 }
 
+// Visible means it occupies space and is not hidden by style. offsetParent is
+// not the test: it is null for every position:fixed element.
+const VISIBLE_HELPER = `const isVisible = (el) => {
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) {
+    return false;
+  }
+  const style = view.getComputedStyle(el);
+  return style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity) !== 0;
+};`;
+
 const snapshotExpression = `(() => {
   const root = ${GUARDED_ROOT};
   const view = root.defaultView || window;
+  ${VISIBLE_HELPER}
   const describe = (el) => ({
     tag: el.tagName.toLowerCase(),
     role: el.getAttribute('role') || undefined,
@@ -286,14 +356,42 @@ const snapshotExpression = `(() => {
     href: el.getAttribute('href') || undefined,
   });
   const elements = [...root.querySelectorAll(${quote(INTERACTIVE_SELECTOR)})]
-    .filter((el) => el.offsetParent !== null)
+    .filter(isVisible)
     .slice(0, ${SNAPSHOT_LIMIT})
     .map(describe);
   return { url: view.location.href, title: root.title, interactive: elements };
 })()`;
 
+// A selector that resolves from the document root, so nested iframes under
+// different parents each get a selector that actually matches them.
+const CSS_PATH_HELPER = `const cssPath = (el) => {
+  const escape = (value) => (view.CSS && view.CSS.escape ? view.CSS.escape(value) : value);
+  const parts = [];
+  let node = el;
+  while (node && node.nodeType === 1) {
+    if (node.id) {
+      parts.unshift(node.tagName.toLowerCase() + '#' + escape(node.id));
+      break;
+    }
+    const parent = node.parentElement;
+    if (!parent) {
+      parts.unshift(node.tagName.toLowerCase());
+      break;
+    }
+    const twins = [...parent.children].filter((child) => child.tagName === node.tagName);
+    const step = twins.length > 1
+      ? node.tagName.toLowerCase() + ':nth-of-type(' + (twins.indexOf(node) + 1) + ')'
+      : node.tagName.toLowerCase();
+    parts.unshift(step);
+    node = parent;
+  }
+  return parts.join(' > ');
+};`;
+
 const framesExpression = `(() => {
   const root = ${GUARDED_ROOT};
+  const view = root.defaultView || window;
+  ${CSS_PATH_HELPER}
   return [...root.querySelectorAll('iframe')].map((frame, index) => {
     let reachable = false;
     try {
@@ -306,7 +404,7 @@ const framesExpression = `(() => {
       src: frame.getAttribute('src') || undefined,
       id: frame.id || undefined,
       name: frame.name || undefined,
-      selector: frame.id ? 'iframe#' + frame.id : 'iframe:nth-of-type(' + (index + 1) + ')',
+      selector: cssPath(frame),
       reachable,
     };
   });
@@ -323,29 +421,36 @@ function elementExpression(selector, body) {
 async function waitForSelector(send, selector, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const found = await evaluate(
-      send,
-      `!!${GUARDED_ROOT}.querySelector(${quote(selector)})`,
-    ).catch(() => false);
-    if (found) {
-      return true;
+    try {
+      const found = await evaluate(send, `!!${GUARDED_ROOT}.querySelector(${quote(selector)})`);
+      if (found) {
+        return true;
+      }
+    } catch (error) {
+      if (PERMANENT_ERROR.test(error.message)) {
+        throw error;
+      }
     }
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
   return false;
 }
 
+function keyEvents(key) {
+  const named = NAMED_KEYS[key];
+  if (named) {
+    return { keyCode: named.keyCode, code: named.code, text: named.text };
+  }
+  if (key.length !== 1) {
+    fail(`unknown key: ${key}. Use a single character or one of: ${Object.keys(NAMED_KEYS).join(", ")}`);
+  }
+  const upper = key.toUpperCase();
+  const code = /[A-Z]/.test(upper) ? `Key${upper}` : /[0-9]/.test(key) ? `Digit${key}` : undefined;
+  return { keyCode: upper.charCodeAt(0), code, text: key };
+}
+
 async function run(socket, send) {
   switch (cmd) {
-    case "tabs": {
-      const pages = await openPages();
-      const rows = pages.map((page, index) => ({ index, title: page.title, url: page.url }));
-      output(
-        rows,
-        rows.map((row) => `${row.index}  ${row.title || "(no title)"}  ${row.url}`).join("\n"),
-      );
-      return;
-    }
     case "snapshot": {
       output(await evaluate(send, snapshotExpression));
       return;
@@ -397,14 +502,26 @@ async function run(socket, send) {
     case "fill": {
       const selector = requireArg(args[0], "selector");
       const value = args[1] ?? "";
-      // Set through the native setter so React and Vue see the change.
+      // Set through the element's own native setter so React and Vue see it.
       await evaluate(
         send,
         elementExpression(
           selector,
-          `const proto = el instanceof HTMLTextAreaElement
-             ? HTMLTextAreaElement.prototype
-             : HTMLInputElement.prototype;
+          `const view = el.ownerDocument.defaultView;
+           if (el.isContentEditable) {
+             el.focus();
+             el.textContent = ${quote(value)};
+             el.dispatchEvent(new Event('input', { bubbles: true }));
+             return true;
+           }
+           const proto = el instanceof view.HTMLTextAreaElement ? view.HTMLTextAreaElement.prototype
+             : el instanceof view.HTMLSelectElement ? view.HTMLSelectElement.prototype
+             : el instanceof view.HTMLInputElement ? view.HTMLInputElement.prototype
+             : null;
+           if (!proto) {
+             throw new Error('cannot fill <' + el.tagName.toLowerCase() +
+               '>: not an input, textarea, select or contenteditable element');
+           }
            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
            el.focus();
            if (setter) { setter.call(el, ${quote(value)}); } else { el.value = ${quote(value)}; }
@@ -419,19 +536,24 @@ async function run(socket, send) {
     case "press": {
       const selector = requireArg(args[0], "selector");
       const key = requireArg(args[1], "key");
+      const { keyCode, code, text } = keyEvents(key);
       await evaluate(send, elementExpression(selector, "el.focus(); return true;"));
-      const keyCodes = { Enter: 13, Tab: 9, Escape: 27, Backspace: 8 };
-      for (const type of ["keyDown", "char", "keyUp"]) {
-        if (type === "char" && !keyCodes[key] && key.length !== 1) {
-          continue;
-        }
-        await send("Input.dispatchKeyEvent", {
-          type,
-          key,
-          text: key.length === 1 ? key : key === "Enter" ? "\r" : undefined,
-          windowsVirtualKeyCode: keyCodes[key] ?? key.toUpperCase().charCodeAt(0),
-        });
+      await send("Input.dispatchKeyEvent", {
+        type: text ? "keyDown" : "rawKeyDown",
+        key,
+        code,
+        text,
+        windowsVirtualKeyCode: keyCode,
+      });
+      if (text) {
+        await send("Input.dispatchKeyEvent", { type: "char", key, code, text });
       }
+      await send("Input.dispatchKeyEvent", {
+        type: "keyUp",
+        key,
+        code,
+        windowsVirtualKeyCode: keyCode,
+      });
       output({ pressed: key, selector }, `pressed ${key} on ${selector}`);
       return;
     }
@@ -462,12 +584,13 @@ async function run(socket, send) {
       return;
     }
     case "logs": {
-      const seconds = Number(args[0] ?? 5);
-      output(await collectLogs(socket, send, seconds));
+      output(await collectLogs(socket, send, logSeconds));
       return;
     }
     case "shot": {
       const path = args[0] ?? "cdp-shot.png";
+      // Chromium renders no frames for a background tab, so raise it first.
+      await send("Page.bringToFront").catch(() => {});
       const result = await send("Page.captureScreenshot", { format: "png" });
       writeFileSync(path, Buffer.from(result.data, "base64"));
       output({ screenshot: path }, path);
@@ -478,11 +601,23 @@ async function run(socket, send) {
   }
 }
 
+// 'tabs' is how you find out what is open, so it must not depend on a tab
+// selection or on any one page's debugger socket being healthy.
+if (cmd === "tabs") {
+  const pages = await openPages();
+  const rows = pages.map((page, index) => ({ index, title: page.title, url: page.url }));
+  output(
+    rows,
+    rows.map((row) => `${row.index}  ${row.title || "(no title)"}  ${row.url}`).join("\n"),
+  );
+  process.exit(0);
+}
+
 // Never hang: a frozen renderer would otherwise block the command forever.
 const hangGuard = setTimeout(() => {
   console.error("cdp-drive: timed out (page likely frozen or renderer stalled)");
   process.exit(2);
-}, HANG_MS);
+}, hangMs);
 hangGuard.unref?.();
 
 const target = pickPage(await openPages());
