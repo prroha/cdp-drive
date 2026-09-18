@@ -8,11 +8,12 @@ on:
 
 jobs:
   unit:
-    name: unit (node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    name: unit (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest]
         node: ["22.4", "24"]
     steps:
       - uses: actions/checkout@v4
@@ -21,20 +22,15 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm run test:unit
 
+  # The browser suite runs on Linux only. On GitHub's macOS runners the
+  # headless browser serves its HTTP endpoint but answers no DevTools call on
+  # any page target, with or without a sandbox flag and whether the session is
+  # attached through the page or the browser endpoint. That is the runner, not
+  # the tool: the same suite passes on a real Mac. macOS is covered by the unit
+  # job above.
   smoke:
-    name: smoke (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Linux CI has no usable Chrome sandbox and the pages under test are
-          # local files. The same flag on macOS leaves the renderer answering
-          # nothing, so it stays empty there.
-          - os: ubuntu-latest
-            extra_flags: "--no-sandbox --disable-dev-shm-usage"
-          - os: macos-latest
-            extra_flags: ""
+    name: smoke (ubuntu-latest)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,7 +43,8 @@ jobs:
       - name: Run the browser smoke test
         env:
           CDP_BROWSER: ${{ steps.chrome.outputs.chrome-path }}
-          CDP_EXTRA_FLAGS: ${{ matrix.extra_flags }}
+          # Linux CI has no usable Chrome sandbox; the pages under test are local files.
+          CDP_EXTRA_FLAGS: "--no-sandbox --disable-dev-shm-usage"
           # Fail fast when a command hangs, so a broken run reports in minutes.
           CDP_TIMEOUT_MS: "10000"
         run: npm run test:smoke

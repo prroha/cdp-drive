@@ -144,6 +144,8 @@ npm run test:unit # pure helpers, milliseconds, no browser
 npm run test:smoke
 ```
 
+CI runs the unit tests on Linux and macOS (Node 22.4 and 24) and the browser suite on Linux. GitHub's macOS runners serve the DevTools HTTP endpoint but answer no DevTools call on a page, so the browser suite is run there by hand instead.
+
 The unit tests cover argument parsing, key mapping, endpoint selection and timeout arithmetic. The smoke test launches a headless browser on a spare port and runs **36 checks** covering every command, iframe targeting (including frames under different parents), React-style fills, select elements, key codes, navigation, the documented exit codes, option validation and the launcher's refusal to start on a busy port.
 
 ## License
