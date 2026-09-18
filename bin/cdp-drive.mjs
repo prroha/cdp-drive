@@ -13,35 +13,23 @@
 //
 // Full docs: README.md
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import {
+  DEFAULT_LOG_SECONDS,
+  DEFAULT_HANG_MS,
+  endpoints,
+  hangMsFor,
+  isLoopbackHost,
+  keyEvents,
+  parseArgs,
+} from "../lib/cli.mjs";
 
-const DEFAULT_PORT = process.env.CDP_PORT ?? "9222";
-const BASE_HANG_MS = Number(process.env.CDP_TIMEOUT_MS ?? 25000);
-const HANG_MARGIN_MS = 5000;
-const DEFAULT_WAIT_MS = 10000;
-const DEFAULT_LOG_SECONDS = 5;
 const POLL_INTERVAL_MS = 150;
 const SNAPSHOT_LIMIT = 150;
 const INTERACTIVE_SELECTOR =
   "a,button,input,select,textarea,[role=button],[role=link],[role=tab],[data-testid]";
-
-// Named keys carry a virtual key code and a `code` value; listeners read both.
-const NAMED_KEYS = {
-  Enter: { keyCode: 13, code: "Enter", text: "\r" },
-  Tab: { keyCode: 9, code: "Tab" },
-  Escape: { keyCode: 27, code: "Escape" },
-  Backspace: { keyCode: 8, code: "Backspace" },
-  Delete: { keyCode: 46, code: "Delete" },
-  ArrowUp: { keyCode: 38, code: "ArrowUp" },
-  ArrowDown: { keyCode: 40, code: "ArrowDown" },
-  ArrowLeft: { keyCode: 37, code: "ArrowLeft" },
-  ArrowRight: { keyCode: 39, code: "ArrowRight" },
-  Home: { keyCode: 36, code: "Home" },
-  End: { keyCode: 35, code: "End" },
-  PageUp: { keyCode: 33, code: "PageUp" },
-  PageDown: { keyCode: 34, code: "PageDown" },
-  Space: { keyCode: 32, code: "Space", text: " " },
-};
 
 const HELP = `cdp-drive — drive a running Chromium browser over the DevTools Protocol
 
@@ -61,7 +49,7 @@ Commands:
   goto <url>               navigate the target page
   reload                   reload the target page
   eval "<js>"              evaluate an expression in the page, print JSON
-  logs [seconds]           collect console messages and errors (default 5)
+  logs [seconds]           collect console messages and errors (default ${DEFAULT_LOG_SECONDS})
   shot [path]              save a PNG screenshot (default ./cdp-shot.png)
 
 Options:
@@ -71,87 +59,58 @@ Options:
   --tab <index>       pick a tab by index from 'tabs'
   --frame <selector>  run inside this iframe; repeat to nest, outer to inner
   --timeout <ms>      timeout for 'wait' (default 10000)
-  --json              print machine-readable JSON for every command
+  --json              machine-readable JSON for results and errors
+  --quiet             suppress confirmation lines; data and errors still print
+  -v, --version       print the version
   -h, --help          show this help
 
 Exit codes: 0 ok · 1 error (no match, bad selector, eval threw) · 2 timeout
             3 no browser reachable on the debugging port`;
 
+const parsed = parseArgs(process.argv.slice(2), process.env);
+const opts = parsed.opts ?? { json: process.argv.includes("--json") };
+
 function fail(message, code = 1) {
-  console.error(`cdp-drive: ${message}`);
+  if (opts.json) {
+    console.log(JSON.stringify({ error: message, code }, null, 2));
+  } else {
+    console.error(`cdp-drive: ${message}`);
+  }
   process.exit(code);
 }
 
-const argv = process.argv.slice(2);
-const frames = [];
-const positional = [];
-const opts = {
-  port: DEFAULT_PORT,
-  host: process.env.CDP_HOST ?? "127.0.0.1",
-  page: process.env.CDP_PAGE ?? null,
-  tab: null,
-  timeout: DEFAULT_WAIT_MS,
-  json: false,
-};
-
-function nextValue(flag, index) {
-  const value = argv[index];
-  if (value == null || value.startsWith("--")) {
-    fail(`${flag} needs a value`);
-  }
-  return value;
+if (parsed.error) {
+  fail(parsed.error);
 }
 
-function positiveNumber(flag, raw) {
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value < 0) {
-    fail(`${flag} expects a number, got ${raw}`);
-  }
-  return value;
+if (parsed.version) {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const { version } = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
+  console.log(opts.json ? JSON.stringify({ version }) : version);
+  process.exit(0);
 }
 
-for (let i = 0; i < argv.length; i++) {
-  const arg = argv[i];
-  if (arg === "--frame") {
-    frames.push(nextValue("--frame", ++i));
-  } else if (arg === "--port") {
-    opts.port = String(positiveNumber("--port", nextValue("--port", ++i)));
-  } else if (arg === "--host") {
-    opts.host = nextValue("--host", ++i);
-  } else if (arg === "--page") {
-    opts.page = nextValue("--page", ++i);
-  } else if (arg === "--tab") {
-    opts.tab = positiveNumber("--tab", nextValue("--tab", ++i));
-  } else if (arg === "--timeout") {
-    opts.timeout = positiveNumber("--timeout", nextValue("--timeout", ++i));
-  } else if (arg === "--json") {
-    opts.json = true;
-  } else if (arg === "-h" || arg === "--help") {
-    console.log(HELP);
-    process.exit(0);
-  } else {
-    positional.push(arg);
-  }
-}
-
-const cmd = positional.shift();
-const args = positional;
-
-if (cmd == null) {
+if (parsed.help || parsed.cmd == null) {
   console.log(HELP);
   process.exit(0);
 }
 
-const logSeconds =
-  cmd === "logs" ? positiveNumber("logs <seconds>", args[0] ?? DEFAULT_LOG_SECONDS) : 0;
+const { frames, cmd, args, logSeconds } = parsed;
 
-// A command that is meant to take time must outlive the hang guard.
-const requestedMs = cmd === "wait" ? opts.timeout : logSeconds * 1000;
-const hangMs = Math.max(BASE_HANG_MS, requestedMs + HANG_MARGIN_MS);
+if (!isLoopbackHost(opts.host)) {
+  console.error(
+    `cdp-drive: warning — ${opts.host} is not a loopback address. ` +
+      `Anything that reaches a debugging port controls the browser, including its logged-in sessions.`,
+  );
+}
 
-function output(value, humanLine) {
+// Human confirmations ("clicked #foo") are noise in a script; data is not.
+function output(value, humanLine, { confirmation = false } = {}) {
   if (opts.json) {
     console.log(JSON.stringify(value, null, 2));
+    return;
+  }
+  if (confirmation && opts.quiet) {
     return;
   }
   console.log(humanLine ?? (typeof value === "string" ? value : JSON.stringify(value, null, 2)));
@@ -160,19 +119,9 @@ function output(value, humanLine) {
 // Serialize a value into a JS string literal safely.
 const quote = (value) => JSON.stringify(String(value ?? ""));
 
-// Chromium binds the debugging port to whichever loopback family it resolved at
-// launch, so try both families before giving up.
-function endpoints() {
-  if (process.env.CDP_URL) {
-    return [process.env.CDP_URL];
-  }
-  const hosts = opts.host === "127.0.0.1" ? ["127.0.0.1", "[::1]"] : [opts.host];
-  return hosts.map((host) => `http://${host}:${opts.port}`);
-}
-
 async function fetchTargets() {
   const errors = [];
-  for (const base of endpoints()) {
+  for (const base of endpoints(opts, process.env)) {
     try {
       const response = await fetch(`${base}/json`);
       if (!response.ok) {
@@ -436,19 +385,6 @@ async function waitForSelector(send, selector, timeoutMs) {
   return false;
 }
 
-function keyEvents(key) {
-  const named = NAMED_KEYS[key];
-  if (named) {
-    return { keyCode: named.keyCode, code: named.code, text: named.text };
-  }
-  if (key.length !== 1) {
-    fail(`unknown key: ${key}. Use a single character or one of: ${Object.keys(NAMED_KEYS).join(", ")}`);
-  }
-  const upper = key.toUpperCase();
-  const code = /[A-Z]/.test(upper) ? `Key${upper}` : /[0-9]/.test(key) ? `Digit${key}` : undefined;
-  return { keyCode: upper.charCodeAt(0), code, text: key };
-}
-
 async function run(socket, send) {
   switch (cmd) {
     case "snapshot": {
@@ -496,7 +432,7 @@ async function run(socket, send) {
     case "click": {
       const selector = requireArg(args[0], "selector");
       await evaluate(send, elementExpression(selector, "el.click(); return true;"));
-      output({ clicked: selector }, `clicked ${selector}`);
+      output({ clicked: selector }, `clicked ${selector}`, { confirmation: true });
       return;
     }
     case "fill": {
@@ -530,13 +466,17 @@ async function run(socket, send) {
            return true;`,
         ),
       );
-      output({ filled: selector, value }, `filled ${selector}`);
+      output({ filled: selector, value }, `filled ${selector}`, { confirmation: true });
       return;
     }
     case "press": {
       const selector = requireArg(args[0], "selector");
       const key = requireArg(args[1], "key");
-      const { keyCode, code, text } = keyEvents(key);
+      const mapped = keyEvents(key);
+      if (mapped.error) {
+        fail(mapped.error);
+      }
+      const { keyCode, code, text } = mapped;
       await evaluate(send, elementExpression(selector, "el.focus(); return true;"));
       await send("Input.dispatchKeyEvent", {
         type: text ? "keyDown" : "rawKeyDown",
@@ -554,7 +494,7 @@ async function run(socket, send) {
         code,
         windowsVirtualKeyCode: keyCode,
       });
-      output({ pressed: key, selector }, `pressed ${key} on ${selector}`);
+      output({ pressed: key, selector }, `pressed ${key} on ${selector}`, { confirmation: true });
       return;
     }
     case "wait": {
@@ -563,18 +503,18 @@ async function run(socket, send) {
       if (!found) {
         fail(`timed out after ${opts.timeout}ms waiting for ${selector}`, 2);
       }
-      output({ waited: selector }, `found ${selector}`);
+      output({ waited: selector }, `found ${selector}`, { confirmation: true });
       return;
     }
     case "goto": {
       const url = requireArg(args[0], "url");
       await send("Page.navigate", { url });
-      output({ navigating: url }, `navigating to ${url}`);
+      output({ navigating: url }, `navigating to ${url}`, { confirmation: true });
       return;
     }
     case "reload": {
       await send("Page.reload", {});
-      output({ reloaded: true }, "reloaded");
+      output({ reloaded: true }, "reloaded", { confirmation: true });
       return;
     }
     case "eval": {
@@ -614,10 +554,17 @@ if (cmd === "tabs") {
 }
 
 // Never hang: a frozen renderer would otherwise block the command forever.
-const hangGuard = setTimeout(() => {
-  console.error("cdp-drive: timed out (page likely frozen or renderer stalled)");
-  process.exit(2);
-}, hangMs);
+const hangGuard = setTimeout(
+  () => {
+    fail("timed out (page likely frozen or renderer stalled)", 2);
+  },
+  hangMsFor({
+    cmd,
+    opts,
+    logSeconds,
+    baseHangMs: Number(process.env.CDP_TIMEOUT_MS ?? DEFAULT_HANG_MS),
+  }),
+);
 hangGuard.unref?.();
 
 const target = pickPage(await openPages());

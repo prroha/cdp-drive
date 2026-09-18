@@ -1,5 +1,7 @@
 # cdp-drive
 
+[![test](https://github.com/prroha/cdp-drive/actions/workflows/test.yml/badge.svg)](https://github.com/prroha/cdp-drive/actions/workflows/test.yml)
+
 Read and drive a **running** Chromium browser from the command line, over the Chrome DevTools Protocol. One file, no dependencies, works with Node 22.4+ or Bun.
 
 ```bash
@@ -83,7 +85,9 @@ Anything that can reach that port can control the browser, so keep it on `127.0.
 | `--tab <index>` | Pick a tab by its index from `tabs` |
 | `--frame <selector>` | Run inside an iframe; repeat to nest, outer to inner |
 | `--timeout <ms>` | Timeout for `wait` |
-| `--json` | Machine-readable JSON for every command |
+| `--json` | Machine-readable JSON for results and errors (`{"error": "...", "code": 1}`) |
+| `--quiet` | Suppress confirmation lines such as "clicked #foo"; data and errors still print |
+| `-v`, `--version` | Print the version |
 
 Exit codes: `0` ok, `1` error (no match, bad selector, eval threw), `2` timeout, `3` no browser reachable.
 
@@ -121,13 +125,19 @@ The agent reads structure instead of guessing from screenshots, and drives the p
 - **Screenshots raise the tab first**, because Chromium renders no frames for a background tab.
 - **A frozen renderer** aborts the command after 25 seconds with exit code 2 (change with `$CDP_TIMEOUT_MS`).
 
+## Security
+
+Anything that can reach the debugging port controls that browser: it can read pages, cookies and logged-in sessions. Keep the port on `127.0.0.1`, don't expose it to a network, and close the browser when you're done. cdp-drive warns when `--host` is not a loopback address.
+
 ## Tests
 
 ```bash
-npm test   # or: bash test/smoke.sh
+npm test          # unit tests, then the browser smoke test
+npm run test:unit # pure helpers, milliseconds, no browser
+npm run test:smoke
 ```
 
-Launches a headless browser on a spare port and runs **36 checks** covering every command, iframe targeting (including frames under different parents), React-style fills, select elements, key codes, navigation, the documented exit codes, option validation and the launcher's refusal to start on a busy port.
+The unit tests cover argument parsing, key mapping, endpoint selection and timeout arithmetic. The smoke test launches a headless browser on a spare port and runs **36 checks** covering every command, iframe targeting (including frames under different parents), React-style fills, select elements, key codes, navigation, the documented exit codes, option validation and the launcher's refusal to start on a busy port.
 
 ## License
 

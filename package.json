@@ -8,11 +8,14 @@
   },
   "files": [
     "bin",
+    "lib",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "bash test/smoke.sh"
+    "test": "npm run test:unit && npm run test:smoke",
+    "test:unit": "node --test test/unit.test.mjs",
+    "test:smoke": "bash test/smoke.sh"
   },
   "engines": {
     "node": ">=22.4"
