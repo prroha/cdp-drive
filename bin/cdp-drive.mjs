@@ -191,14 +191,52 @@ function cdpClient(socket) {
       pending.delete(message.id);
     }
   });
-  return (method, params = {}) =>
+  // sessionId routes a call to one page; without it the call is browser-wide.
+  return (method, params = {}, sessionId) =>
     new Promise((resolve, reject) => {
       const id = nextId++;
       pending.set(id, (message) =>
         message.error ? reject(new Error(message.error.message)) : resolve(message.result),
       );
-      socket.send(JSON.stringify({ id, method, params }));
+      socket.send(JSON.stringify({ id, method, params, sessionId }));
     });
+}
+
+async function openSocket(url) {
+  const socket = new WebSocket(url);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener("open", resolve);
+    socket.addEventListener("error", () =>
+      reject(new Error(`could not open a DevTools connection to ${url}`)),
+    );
+  });
+  return socket;
+}
+
+// Attach through the browser endpoint rather than a page socket. Page sockets
+// are silently unresponsive in some environments, and a browser session also
+// leaves room for browser-level calls later.
+async function connectToPage(target) {
+  let browserUrl = null;
+  for (const base of endpoints(opts, process.env)) {
+    try {
+      const response = await fetch(`${base}/json/version`);
+      browserUrl = (await response.json()).webSocketDebuggerUrl;
+      break;
+    } catch {
+      continue;
+    }
+  }
+  if (browserUrl == null) {
+    throw new Error("the browser endpoint did not report a DevTools socket");
+  }
+  const socket = await openSocket(browserUrl);
+  const send = cdpClient(socket);
+  const { sessionId } = await send("Target.attachToTarget", {
+    targetId: target.id,
+    flatten: true,
+  });
+  return { socket, send: (method, params) => send(method, params, sessionId) };
 }
 
 // The document commands run against: walks into each --frame iframe in turn.
@@ -568,12 +606,7 @@ const hangGuard = setTimeout(
 hangGuard.unref?.();
 
 const target = pickPage(await openPages());
-const socket = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise((resolve, reject) => {
-  socket.addEventListener("open", resolve);
-  socket.addEventListener("error", () => reject(new Error("could not open a DevTools connection")));
-});
-const send = cdpClient(socket);
+const { socket, send } = await connectToPage(target).catch((error) => fail(error.message, 3));
 await send("Runtime.enable").catch(() => {});
 await send("Page.enable").catch(() => {});
 try {
