@@ -37,6 +37,16 @@ jobs:
         id: chrome
         with:
           chrome-version: stable
+      - name: Probe the DevTools endpoint
+        env:
+          CDP_BROWSER: ${{ steps.chrome.outputs.chrome-path }}
+          CDP_EXTRA_FLAGS: "--no-sandbox --disable-dev-shm-usage"
+        run: |
+          "${CDP_BROWSER}" --version || true
+          CDP_PORT=9455 CDP_PROFILE=/tmp/probe-profile CDP_HEADLESS=1 ./bin/cdp-launch.sh about:blank
+          curl -s http://127.0.0.1:9455/json/version || true
+          node test/ws-probe.mjs http://127.0.0.1:9455 || true
+
       - name: Run the browser smoke test
         env:
           CDP_BROWSER: ${{ steps.chrome.outputs.chrome-path }}
