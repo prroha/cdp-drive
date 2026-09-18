@@ -45,7 +45,7 @@ A browser only accepts DevTools connections if it was started with a debugging p
 # CDP_PORT=9333 CDP_HEADLESS=1 CDP_PROFILE=~/.cache/dev-profile ./bin/cdp-launch.sh
 ```
 
-It finds Chrome, Brave, Chromium or Edge, or you can set `CDP_BROWSER=/path/to/browser`. Extra browser flags go in `CDP_EXTRA_FLAGS`; on Linux CI and inside containers Chrome usually needs `CDP_EXTRA_FLAGS="--no-sandbox --disable-dev-shm-usage"`, since its sandbox can't start there.
+It finds Chrome, Brave, Chromium or Edge, or you can set `CDP_BROWSER=/path/to/browser`. Extra browser flags go in `CDP_EXTRA_FLAGS`; on Linux CI and inside containers Chrome usually needs `CDP_EXTRA_FLAGS="--no-sandbox --disable-dev-shm-usage"`, since its sandbox can't start there. Don't pass `--no-sandbox` on macOS: the browser still answers over HTTP, but its renderer stops answering DevTools calls.
 
 **Option B: your own browser, with your own logins.** Quit it completely, then start it with:
 
@@ -128,6 +128,14 @@ The agent reads structure instead of guessing from screenshots, and drives the p
 ## Security
 
 Anything that can reach the debugging port controls that browser: it can read pages, cookies and logged-in sessions. Keep the port on `127.0.0.1`, don't expose it to a network, and close the browser when you're done. cdp-drive warns when `--host` is not a loopback address.
+
+## Debugging a stuck connection
+
+`test/ws-probe.mjs` connects to a page target and times each DevTools call, which separates "cannot connect" from "connects but nothing answers":
+
+```bash
+node test/ws-probe.mjs http://127.0.0.1:9222
+```
 
 ## Tests
 

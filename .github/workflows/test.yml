@@ -27,7 +27,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          # Linux CI has no usable Chrome sandbox and the pages under test are
+          # local files. The same flag on macOS leaves the renderer answering
+          # nothing, so it stays empty there.
+          - os: ubuntu-latest
+            extra_flags: "--no-sandbox --disable-dev-shm-usage"
+          - os: macos-latest
+            extra_flags: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,21 +44,12 @@ jobs:
         id: chrome
         with:
           chrome-version: stable
-      - name: Probe the DevTools endpoint
-        env:
-          CDP_BROWSER: ${{ steps.chrome.outputs.chrome-path }}
-          CDP_EXTRA_FLAGS: "--no-sandbox --disable-dev-shm-usage"
-        run: |
-          "${CDP_BROWSER}" --version || true
-          CDP_PORT=9455 CDP_PROFILE=/tmp/probe-profile CDP_HEADLESS=1 ./bin/cdp-launch.sh "file://$PWD/test/fixture.html"
-          curl -s http://127.0.0.1:9455/json/version || true
-          node test/ws-probe.mjs http://127.0.0.1:9455 fixture || true
-
       - name: Run the browser smoke test
         env:
           CDP_BROWSER: ${{ steps.chrome.outputs.chrome-path }}
-          # CI has no usable Chrome sandbox; the pages under test are local files.
-          CDP_EXTRA_FLAGS: "--no-sandbox --disable-dev-shm-usage"
+          CDP_EXTRA_FLAGS: ${{ matrix.extra_flags }}
+          # Fail fast when a command hangs, so a broken run reports in minutes.
+          CDP_TIMEOUT_MS: "10000"
         run: npm run test:smoke
 
   shellcheck:
