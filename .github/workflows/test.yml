@@ -40,6 +40,8 @@ jobs:
       - name: Run the browser smoke test
         env:
           CDP_BROWSER: ${{ steps.chrome.outputs.chrome-path }}
+          # CI has no usable Chrome sandbox; the pages under test are local files.
+          CDP_EXTRA_FLAGS: "--no-sandbox --disable-dev-shm-usage"
         run: npm run test:smoke
 
   shellcheck:

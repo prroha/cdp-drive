@@ -45,7 +45,7 @@ A browser only accepts DevTools connections if it was started with a debugging p
 # CDP_PORT=9333 CDP_HEADLESS=1 CDP_PROFILE=~/.cache/dev-profile ./bin/cdp-launch.sh
 ```
 
-It finds Chrome, Brave, Chromium or Edge, or you can set `CDP_BROWSER=/path/to/browser`.
+It finds Chrome, Brave, Chromium or Edge, or you can set `CDP_BROWSER=/path/to/browser`. Extra browser flags go in `CDP_EXTRA_FLAGS`; on Linux CI and inside containers Chrome usually needs `CDP_EXTRA_FLAGS="--no-sandbox --disable-dev-shm-usage"`, since its sandbox can't start there.
 
 **Option B: your own browser, with your own logins.** Quit it completely, then start it with:
 

@@ -9,6 +9,11 @@
 #   CDP_PROFILE=~/.cache/my-profile cdp-launch.sh     # keep logins between runs
 #   CDP_FRESH=1 cdp-launch.sh                          # wipe the profile first
 #   CDP_HEADLESS=1 cdp-launch.sh                       # no window
+#   CDP_EXTRA_FLAGS="--no-sandbox" cdp-launch.sh       # extra browser flags
+#
+# On Linux CI and inside containers Chrome usually needs
+# CDP_EXTRA_FLAGS="--no-sandbox --disable-dev-shm-usage", because its sandbox
+# cannot start there. Only do that where the pages you open are trusted.
 #
 # To drive a browser with your real logins instead, close it fully and start it
 # yourself with --remote-debugging-port=9222, then point cdp-drive at that port.
@@ -93,6 +98,11 @@ flags=(
 )
 if [[ -n "${CDP_HEADLESS:-}" ]]; then
   flags+=(--headless=new --disable-gpu)
+fi
+if [[ -n "${CDP_EXTRA_FLAGS:-}" ]]; then
+  # Word-split on purpose: this variable holds several flags.
+  # shellcheck disable=SC2206
+  flags+=(${CDP_EXTRA_FLAGS})
 fi
 
 echo "cdp-launch: $BROWSER"
