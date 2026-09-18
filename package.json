@@ -1,0 +1,36 @@
+{
+  "name": "cdp-drive",
+  "version": "1.0.0",
+  "description": "Read and drive a running Chromium browser from the command line over the DevTools Protocol. No dependencies.",
+  "type": "module",
+  "bin": {
+    "cdp-drive": "bin/cdp-drive.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "bash test/smoke.sh"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "cdp",
+    "chrome-devtools-protocol",
+    "chromium",
+    "browser-automation",
+    "cli",
+    "scraping",
+    "ai-agent",
+    "debugging"
+  ],
+  "license": "MIT",
+  "author": "Prakash Subedi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/prroha/cdp-drive.git"
+  }
+}

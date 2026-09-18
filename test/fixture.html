@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <title>cdp-drive fixture</title>
+  </head>
+  <body>
+    <h1 id="heading">Hello from the fixture</h1>
+    <input id="name" placeholder="Your name" />
+    <button id="greet" data-testid="greet">Greet</button>
+    <p id="output"></p>
+    <iframe id="inner" srcdoc="<h2 id='inner-heading'>Inside the iframe</h2>"></iframe>
+    <script>
+      document.querySelector("#greet").addEventListener("click", () => {
+        const name = document.querySelector("#name").value;
+        document.querySelector("#output").textContent = `Hello, ${name}!`;
+        console.log("greeted", name);
+      });
+      setTimeout(() => {
+        const later = document.createElement("div");
+        later.id = "late";
+        later.textContent = "arrived late";
+        document.body.append(later);
+      }, 700);
+    </script>
+  </body>
+</html>
