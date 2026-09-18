@@ -67,9 +67,8 @@ Anything that can reach that port can control the browser, so keep it on `127.0.
 | `attr <selector> <name>` | One attribute of the first match |
 | `click <selector>` | Click the first match |
 | `fill <selector> <value>` | Set a value through the native setter, then fire `input` and `change` |
-| `press <selector> <key>` | Focus the match and send a key, e.g. `Enter` |
 | `wait <selector>` | Poll until the selector matches, or fail (`--timeout`, default 10000ms) |
-| `press <selector> <key>` keys | `Enter`, `Tab`, `Escape`, `Backspace`, `Delete`, arrows, `Home`, `End`, `PageUp`, `PageDown`, `Space`, or any single character |
+| `press <selector> <key>` | Focus the match and send a key: `Enter`, `Tab`, `Escape`, `Backspace`, `Delete`, arrows, `Home`, `End`, `PageUp`, `PageDown`, `Space`, or any single character |
 | `goto <url>` / `reload` | Navigate |
 | `eval "<js>"` | Evaluate an expression in the page and print the JSON result |
 | `logs [seconds]` | Collect console messages, exceptions and browser logs, repeats folded with counts |
