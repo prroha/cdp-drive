@@ -12,7 +12,7 @@ import {
   keyEvents,
   parseArgs,
 } from "../lib/cli.mjs";
-import { browserFlags, findBrowser } from "../lib/launch.mjs";
+import { browserFlags, findBrowser, profileHolders } from "../lib/launch.mjs";
 
 test("parses a bare command", () => {
   const parsed = parseArgs(["snapshot"]);
@@ -107,9 +107,9 @@ test("maps single characters, and refuses unknown names", () => {
   assert.match(keyEvents("Banana").error, /unknown key/);
 });
 
-test("finds a browser from the environment, or names what to set", () => {
-  assert.equal(findBrowser({ CDP_BROWSER: "/tmp/browser" }), "/tmp/browser");
-  assert.throws(() => findBrowser({}, "nosuchplatform"), /Set CDP_BROWSER/);
+test("takes the browser from the environment, and checks it exists", () => {
+  assert.equal(findBrowser({ CDP_BROWSER: process.execPath }), process.execPath);
+  assert.throws(() => findBrowser({ CDP_BROWSER: "/tmp/nothing-here" }), /does not exist/);
 });
 
 test("builds browser flags, headless and extras included", () => {
@@ -130,4 +130,21 @@ test("builds browser flags, headless and extras included", () => {
   assert.ok(extended.includes("--headless=new"));
   assert.ok(extended.includes("--no-sandbox"));
   assert.ok(extended.includes("--disable-dev-shm-usage"));
+});
+
+test("matches a profile holder by whole token, not by substring", () => {
+  const lines = [
+    "111 /usr/bin/chrome --user-data-dir=/tmp/p --headless=new",
+    "222 /usr/bin/chrome --user-data-dir=/tmp/p2",
+    "333 /usr/bin/chrome --user-data-dir=/tmp/p-other",
+    "not a process line",
+  ];
+  assert.deepEqual(profileHolders(lines, "/tmp/p"), [111]);
+  assert.deepEqual(profileHolders(lines, "/tmp/p2"), [222]);
+  assert.deepEqual(profileHolders(lines, "/tmp/missing"), []);
+});
+
+test("gives launch a guard long enough for a cold browser start", () => {
+  const opts = parseArgs(["launch"]).opts;
+  assert.equal(hangMsFor({ cmd: "launch", opts, logSeconds: 0 }), 45000);
 });

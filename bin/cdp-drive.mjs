@@ -2,8 +2,8 @@
 // cdp-drive — read and drive a running Chromium browser over the Chrome
 // DevTools Protocol. No dependencies. Runs on Node 22.4+ and Bun.
 //
-// Start a browser with debugging on (see cdp-launch.sh), then:
-//   cdp-drive tabs
+// Start a browser and drive it:
+//   cdp-drive launch https://example.com
 //   cdp-drive snapshot
 //   cdp-drive click "button[type=submit]"
 //
@@ -24,7 +24,7 @@ const HELP = `cdp-drive — drive a running Chromium browser over the DevTools P
 Usage: cdp-drive [options] <command> [args]
 
 Commands:
-  launch [url]             start a browser with debugging on, then attach to it
+  launch [url]             start a browser with debugging on, in its own profile
   doctor                   check the setup and say what is missing
   tabs                     list open pages (index, title, url)
   snapshot                 url, title and the interactive elements on the page
@@ -61,7 +61,8 @@ const parsed = parseArgs(process.argv.slice(2), process.env);
 const opts = parsed.opts ?? { json: process.argv.includes("--json") };
 
 function report(error) {
-  const code = error.code ?? EXIT.error;
+  // Only our own errors carry an exit code; a Node error's `code` is a string.
+  const code = typeof error.code === "number" ? error.code : EXIT.error;
   if (opts.json) {
     console.log(JSON.stringify({ error: error.message, code }, null, 2));
   } else {
@@ -120,7 +121,7 @@ async function listTabs() {
 }
 
 async function runCommand() {
-  const handler = COMMANDS[parsed.cmd];
+  const handler = Object.hasOwn(COMMANDS, parsed.cmd) ? COMMANDS[parsed.cmd] : null;
   if (!handler) {
     throw new CdpError(`unknown command: ${parsed.cmd}. Run cdp-drive --help.`);
   }
@@ -187,9 +188,10 @@ const DIRECT_COMMANDS = {
 };
 
 try {
-  const direct = DIRECT_COMMANDS[parsed.cmd];
+  const direct = Object.hasOwn(DIRECT_COMMANDS, parsed.cmd) ? DIRECT_COMMANDS[parsed.cmd] : null;
   print(direct ? await direct() : await runCommand());
 } catch (error) {
   report(error);
 }
-process.exit(0);
+// exitCode, not exit(): a pending write to a pipe would be discarded.
+process.exitCode = 0;

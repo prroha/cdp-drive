@@ -111,6 +111,12 @@ check "unknown key is rejected" "unknown key" "$("${DRIVE[@]}" press "#name" Ban
 check "launch refuses a busy port" "already serving" \
   "$(CDP_PROFILE=/tmp/cdp-drive-other-profile "${DRIVE[@]}" launch 2>&1)"
 check "doctor reports a working setup" "Ready" "$("${DRIVE[@]}" doctor)"
+check "unknown command is refused" "unknown command" "$("${DRIVE[@]}" toString 2>&1)"
+"${DRIVE[@]}" toString >/dev/null 2>&1
+check_code "unknown command exits 1" 1 "$?"
+check "large output survives a pipe" "3000003" \
+  "$("${DRIVE[@]}" eval "'y'.repeat(3000000)" | wc -c | tr -d ' ')"
+check "a bad key never moves focus" "" "$("${DRIVE[@]}" press "#output" Banana 2>/dev/null)"
 
 echo
 echo "passed: $pass   failed: $fail"
