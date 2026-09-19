@@ -24,41 +24,51 @@ Those launch their own clean browser. That's exactly what you want for tests, an
 
 Use Playwright for test suites, parallel runs and network interception. Use cdp-drive to poke at a live browser.
 
-## Install
+## Get started
 
 ```bash
-git clone https://github.com/prroha/cdp-drive.git
-chmod +x cdp-drive/bin/*
-alias cdp-drive="$PWD/cdp-drive/bin/cdp-drive.mjs"
+npm install -g github:prroha/cdp-drive
+
+cdp-drive launch https://example.com   # starts a browser with debugging on
+cdp-drive snapshot                     # what is on the page
+cdp-drive click "a[href='/about']"     # drive it
 ```
 
-Or copy `bin/cdp-drive.mjs` anywhere on your `PATH`. It has no dependencies, so nothing else is needed.
+That is the whole setup: no config, no browser download, no dependencies. cdp-drive finds Chrome, Brave, Chromium or Edge on macOS, Linux or Windows, and needs Node 22.4+ or Bun.
 
-## Start a browser with debugging on
+You can also clone the repo and run `bin/cdp-drive.mjs` directly.
 
-A browser only accepts DevTools connections if it was started with a debugging port.
-
-**Option A: the included launcher** (throwaway profile, no effect on your everyday browser):
+**Something not working?**
 
 ```bash
-./bin/cdp-launch.sh http://localhost:3000
-# CDP_PORT=9333 CDP_HEADLESS=1 CDP_PROFILE=~/.cache/dev-profile ./bin/cdp-launch.sh
+cdp-drive doctor
+# ok    node: v24.4.0
+# ok    browser: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+# FAIL  debugging port: no browser reachable (http://127.0.0.1:9222: ECONNREFUSED)
+# Start a browser with: cdp-drive launch <url>
 ```
 
-It finds Chrome, Brave, Chromium or Edge, or you can set `CDP_BROWSER=/path/to/browser`. Extra browser flags go in `CDP_EXTRA_FLAGS`; on Linux CI and inside containers Chrome usually needs `CDP_EXTRA_FLAGS="--no-sandbox --disable-dev-shm-usage"`, since its sandbox can't start there. Don't pass `--no-sandbox` on macOS: the browser still answers over HTTP, but its renderer stops answering DevTools calls.
+## Attaching to your own browser, with your logins
 
-**Option B: your own browser, with your own logins.** Quit it completely, then start it with:
+`launch` starts a separate browser with a throwaway profile, so your everyday browser is untouched. To drive the browser you actually use, with its sessions:
 
-```bash
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222
-```
+1. Quit it completely.
+2. Start it with a debugging port:
+   ```bash
+   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222
+   ```
+3. Run cdp-drive as usual.
 
-Anything that can reach that port can control the browser, so keep it on `127.0.0.1` and turn it off when you're done.
+Keep `launch`'s profile between runs, logins included, with `CDP_PROFILE=~/.cache/my-profile`.
+
+Anything that can reach the debugging port controls that browser, so keep it on `127.0.0.1` and close it when you're done.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
+| `launch [url]` | Start a browser with debugging on, in a throwaway profile |
+| `doctor` | Check Node, the browser and the debugging port, and say what is missing |
 | `tabs` | List open pages with an index, title and URL |
 | `snapshot` | URL, title and up to 150 visible interactive elements as JSON |
 | `frames` | List iframes, each with a ready-made selector for `--frame` |
@@ -113,6 +123,18 @@ cdp-drive shot /tmp/page.png  # a picture, when a picture helps
 ```
 
 The agent reads structure instead of guessing from screenshots, and drives the page you already signed into.
+
+## Environment variables
+
+| Variable | Meaning |
+|---|---|
+| `CDP_PORT`, `CDP_HOST`, `CDP_PAGE` | Defaults for the matching options |
+| `CDP_BROWSER` | Path to the browser executable, when it isn't found automatically |
+| `CDP_PROFILE` | Profile directory `launch` uses (keep it to keep logins) |
+| `CDP_FRESH` | Wipe that profile before launching |
+| `CDP_HEADLESS` | Launch without a window |
+| `CDP_EXTRA_FLAGS` | Extra browser flags; Linux CI and containers usually need `--no-sandbox --disable-dev-shm-usage` |
+| `CDP_TIMEOUT_MS` | Guard against a frozen page (default 25000) |
 
 ## Gotchas worth knowing
 

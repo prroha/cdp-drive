@@ -54,4 +54,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck bin/cdp-launch.sh test/smoke.sh
+      - run: shellcheck test/smoke.sh

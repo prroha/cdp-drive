@@ -12,6 +12,7 @@ import {
   keyEvents,
   parseArgs,
 } from "../lib/cli.mjs";
+import { browserFlags, findBrowser } from "../lib/launch.mjs";
 
 test("parses a bare command", () => {
   const parsed = parseArgs(["snapshot"]);
@@ -104,4 +105,29 @@ test("maps single characters, and refuses unknown names", () => {
   assert.deepEqual(keyEvents("a"), { keyCode: 65, code: "KeyA", text: "a" });
   assert.deepEqual(keyEvents("7"), { keyCode: 55, code: "Digit7", text: "7" });
   assert.match(keyEvents("Banana").error, /unknown key/);
+});
+
+test("finds a browser from the environment, or names what to set", () => {
+  assert.equal(findBrowser({ CDP_BROWSER: "/tmp/browser" }), "/tmp/browser");
+  assert.throws(() => findBrowser({}, "nosuchplatform"), /Set CDP_BROWSER/);
+});
+
+test("builds browser flags, headless and extras included", () => {
+  const plain = browserFlags({ port: "9222", profile: "/tmp/p" });
+  assert.deepEqual(plain, [
+    "--remote-debugging-port=9222",
+    "--user-data-dir=/tmp/p",
+    "--no-first-run",
+    "--no-default-browser-check",
+  ]);
+
+  const extended = browserFlags({
+    port: "9333",
+    profile: "/tmp/p",
+    headless: true,
+    extra: "--no-sandbox --disable-dev-shm-usage",
+  });
+  assert.ok(extended.includes("--headless=new"));
+  assert.ok(extended.includes("--no-sandbox"));
+  assert.ok(extended.includes("--disable-dev-shm-usage"));
 });

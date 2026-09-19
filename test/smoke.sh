@@ -46,8 +46,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "launching browser on port $PORT"
-CDP_PORT="$PORT" CDP_PROFILE="$PROFILE" CDP_FRESH=1 CDP_HEADLESS=1 \
-  "$ROOT/bin/cdp-launch.sh" "$FIXTURE" >/dev/null
+CDP_PROFILE="$PROFILE" CDP_FRESH=1 CDP_HEADLESS=1 "${DRIVE[@]}" launch "$FIXTURE" >/dev/null
 
 echo "reading the page"
 check "tabs lists the fixture" "fixture" "$("${DRIVE[@]}" tabs)"
@@ -109,8 +108,9 @@ check "unreachable port is reported" "no browser reachable" \
 check "bad option value is rejected" "expects a number" "$("${DRIVE[@]}" --timeout abc wait "#x" 2>&1)"
 check "missing option value is rejected" "needs a value" "$("${DRIVE[@]}" tabs --port 2>&1)"
 check "unknown key is rejected" "unknown key" "$("${DRIVE[@]}" press "#name" Banana 2>&1)"
-check "launcher refuses a busy port" "already serving" \
-  "$(CDP_PORT="$PORT" CDP_PROFILE=/tmp/cdp-drive-other-profile "$ROOT/bin/cdp-launch.sh" 2>&1)"
+check "launch refuses a busy port" "already serving" \
+  "$(CDP_PROFILE=/tmp/cdp-drive-other-profile "${DRIVE[@]}" launch 2>&1)"
+check "doctor reports a working setup" "Ready" "$("${DRIVE[@]}" doctor)"
 
 echo
 echo "passed: $pass   failed: $fail"

@@ -16,6 +16,7 @@ import { DEFAULT_HANG_MS, hangMsFor, isLoopbackHost, parseArgs } from "../lib/cl
 import { connectToPage, openPages, pickPage } from "../lib/cdp.mjs";
 import { COMMANDS } from "../lib/commands.mjs";
 import { documentRoot } from "../lib/page.mjs";
+import { findBrowser, launchBrowser } from "../lib/launch.mjs";
 import { CdpError, EXIT } from "../lib/errors.mjs";
 
 const HELP = `cdp-drive — drive a running Chromium browser over the DevTools Protocol
@@ -23,6 +24,8 @@ const HELP = `cdp-drive — drive a running Chromium browser over the DevTools P
 Usage: cdp-drive [options] <command> [args]
 
 Commands:
+  launch [url]             start a browser with debugging on, then attach to it
+  doctor                   check the setup and say what is missing
   tabs                     list open pages (index, title, url)
   snapshot                 url, title and the interactive elements on the page
   frames                   list iframes, with a selector for --frame
@@ -81,6 +84,29 @@ function print({ data, line, confirmation }) {
 function readVersion() {
   const packagePath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
   return JSON.parse(readFileSync(packagePath, "utf8")).version;
+}
+
+async function doctor() {
+  const checks = [];
+  checks.push({ check: "node", value: process.version, ok: true });
+  try {
+    checks.push({ check: "browser", value: findBrowser(), ok: true });
+  } catch (error) {
+    checks.push({ check: "browser", value: error.message, ok: false });
+  }
+  try {
+    const pages = await openPages(opts, process.env);
+    checks.push({ check: "debugging port", value: `${pages.length} open page(s)`, ok: true });
+  } catch (error) {
+    checks.push({ check: "debugging port", value: error.message.split("\n")[0], ok: false });
+  }
+  const line = checks
+    .map((entry) => `${entry.ok ? "ok  " : "FAIL"}  ${entry.check}: ${entry.value}`)
+    .join("\n");
+  const hint = checks.every((entry) => entry.ok)
+    ? "\nReady. Try: cdp-drive snapshot"
+    : "\nStart a browser with: cdp-drive launch <url>";
+  return { data: checks, line: line + hint };
 }
 
 // 'tabs' answers over HTTP alone, so it works even when no page will attach.
@@ -147,8 +173,22 @@ const hangGuard = setTimeout(
 );
 hangGuard.unref?.();
 
+const DIRECT_COMMANDS = {
+  tabs: listTabs,
+  doctor,
+  launch: async () => {
+    const url = parsed.args[0] ?? "about:blank";
+    const { browser, port } = await launchBrowser({ url, opts });
+    return {
+      data: { browser, port, url },
+      line: `launched ${browser}\ndebugging on 127.0.0.1:${port} — try: cdp-drive tabs`,
+    };
+  },
+};
+
 try {
-  print(parsed.cmd === "tabs" ? await listTabs() : await runCommand());
+  const direct = DIRECT_COMMANDS[parsed.cmd];
+  print(direct ? await direct() : await runCommand());
 } catch (error) {
   report(error);
 }
