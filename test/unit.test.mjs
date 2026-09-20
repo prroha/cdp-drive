@@ -163,6 +163,27 @@ test("lists every process holding the profile, not just the first", () => {
   assert.deepEqual(profileHolders(lines, "/tmp/p"), [111, 112]);
 });
 
+test("accepts a value beginning with dashes through the equals form", () => {
+  const parsed = parseArgs(["--page=--odd-title", "snapshot"], {});
+  assert.equal(parsed.opts.page, "--odd-title");
+  assert.equal(parsed.cmd, "snapshot");
+});
+
+test("keeps an equals sign that belongs to the value", () => {
+  assert.deepEqual(parseArgs(["--frame=iframe[src*=a=b]", "snapshot"], {}).frames, ["iframe[src*=a=b]"]);
+});
+
+test("rejects a timeout or port of zero", () => {
+  assert.match(parseArgs(["--timeout", "0", "wait", ".x"], {}).error, /at least 1/);
+  assert.match(parseArgs(["--port", "0"], {}).error, /at least 1/);
+});
+
+test("every rejection still carries options so errors can honour --json", () => {
+  for (const argv of [["--port", "abc"], ["--page"], ["logs", "-1"], ["--tab", "x"]]) {
+    assert.ok(parseArgs([...argv, "--json"], {}).opts, `${argv} lost opts`);
+  }
+});
+
 test("gives launch a guard long enough for a cold browser start", () => {
   const opts = parseArgs(["launch"]).opts;
   assert.equal(hangMsFor({ cmd: "launch", opts, logSeconds: 0 }), 45000);

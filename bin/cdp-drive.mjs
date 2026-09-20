@@ -58,7 +58,7 @@ Exit codes: 0 ok · 1 error (no match, bad selector, eval threw) · 2 timeout
             3 no browser reachable on the debugging port`;
 
 const parsed = parseArgs(process.argv.slice(2), process.env);
-const opts = parsed.opts ?? { json: process.argv.includes("--json") };
+const opts = parsed.opts;
 
 function report(error) {
   // Only our own errors carry an exit code; a Node error's `code` is a string.
@@ -126,11 +126,12 @@ async function runCommand() {
     throw new CdpError(`unknown command: ${parsed.cmd}. Run cdp-drive --help.`);
   }
   const target = pickPage(await openPages(opts, process.env), opts);
-  const { socket, send } = await connectToPage(target, opts, process.env);
+  const { socket, send, sessionId } = await connectToPage(target, opts, process.env);
   try {
     return await handler({
       send,
       socket,
+      sessionId,
       opts,
       args: parsed.args,
       logSeconds: parsed.logSeconds,

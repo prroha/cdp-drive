@@ -202,6 +202,14 @@ cdp-drive --json logs 3          # did the change throw anything?
 
 ## Options
 
+A value that begins with `--` must use the equals form, since the space form
+cannot tell one from a mistyped flag:
+
+```bash
+cdp-drive --page=--odd-title snapshot
+```
+
+
 | Option | Meaning |
 |---|---|
 | `--port <n>` | Debugging port (default `9222`, or `$CDP_PORT`) |
