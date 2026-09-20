@@ -179,10 +179,10 @@ const DIRECT_COMMANDS = {
   doctor,
   launch: async () => {
     const url = parsed.args[0] ?? "about:blank";
-    const { browser, port } = await launchBrowser({ url, opts });
+    const { browser, port, profile } = await launchBrowser({ url, opts });
     return {
-      data: { browser, port, url },
-      line: `launched ${browser}\ndebugging on 127.0.0.1:${port} — try: cdp-drive tabs`,
+      data: { browser, port, profile, url },
+      line: `launched ${browser}\ndebugging on ${opts.host}:${port}\nprofile ${profile} — try: cdp-drive tabs`,
     };
   },
 };

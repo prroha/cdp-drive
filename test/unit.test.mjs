@@ -144,6 +144,25 @@ test("matches a profile holder by whole token, not by substring", () => {
   assert.deepEqual(profileHolders(lines, "/tmp/missing"), []);
 });
 
+test("reads the leading-whitespace pid column that ps prints", () => {
+  const lines = ["  692 /Applications/Brave.app/Contents/MacOS/Brave --user-data-dir=/tmp/p"];
+  assert.deepEqual(profileHolders(lines, "/tmp/p"), [692]);
+});
+
+test("matches a profile passed as a separate argument", () => {
+  const lines = ["111 /usr/bin/chrome --user-data-dir /tmp/p --headless=new"];
+  assert.deepEqual(profileHolders(lines, "/tmp/p"), [111]);
+  assert.deepEqual(profileHolders(lines, "/tmp"), []);
+});
+
+test("lists every process holding the profile, not just the first", () => {
+  const lines = [
+    "111 /usr/bin/chrome --user-data-dir=/tmp/p",
+    "112 /usr/bin/chrome --type=renderer --user-data-dir=/tmp/p",
+  ];
+  assert.deepEqual(profileHolders(lines, "/tmp/p"), [111, 112]);
+});
+
 test("gives launch a guard long enough for a cold browser start", () => {
   const opts = parseArgs(["launch"]).opts;
   assert.equal(hangMsFor({ cmd: "launch", opts, logSeconds: 0 }), 45000);
